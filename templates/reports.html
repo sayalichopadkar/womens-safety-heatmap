@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% from "_filters.html" import filter_form %}
+{% from "_analysis.html" import findings %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>Incident summary report</h1>
+  <div class="no-print">
+    <a class="btn btn-small" href="{{ url_for('export_pdf', **f) }}">⬇ PDF</a>
+    <a class="btn btn-small" href="{{ url_for('export_xlsx', **f) }}">⬇ Excel</a>
+    <a class="btn btn-small" href="{{ url_for('export_csv', **f) }}">⬇ CSV</a>
+    <a class="btn btn-small btn-ghost" href="{{ url_for('powerbi') }}">Power BI data</a>
+    <button class="btn btn-small btn-ghost" onclick="window.print()">🖨 Print / Save PDF</button>
+  </div>
+</div>
+<div class="no-print">{{ filter_form(url_for('reports'), f, areas, types, statuses, slots) }}</div>
+<p class="muted">Generated {{ generated.strftime('%d %b %Y, %H:%M') }} · Filters:
+  {% set shown = f.items()|list %}{{ shown|map('join', '=')|join(', ') if shown else 'none (all data)' }}</p>
+
+<section class="kpis">
+  <div class="kpi"><div class="kpi-v">{{ s.kpis.total }}</div><div class="kpi-l">Total incidents</div></div>
+  <div class="kpi"><div class="kpi-v">{{ s.kpis.severe }}</div><div class="kpi-l">Severe (4-5)</div></div>
+  <div class="kpi"><div class="kpi-v">{{ s.kpis.open }}</div><div class="kpi-l">Open cases</div></div>
+  <div class="kpi"><div class="kpi-v">{{ s.kpis.resolution_rate }}%</div><div class="kpi-l">Resolution rate</div></div>
+</section>
+
+<section class="card">
+  <h2>Key insights</h2>
+  <ul>{% for i in insights %}<li>{{ i }}</li>{% endfor %}</ul>
+</section>
+
+<h2>Analysis: what, where, when and how</h2>
+{% if an.total %}<div class="grid2">{{ findings(an) }}</div>{% else %}<div class="card">No incidents match these filters.</div>{% endif %}
+
+<section class="card" style="margin-top:16px">
+  <h2>Inquiries overview</h2>
+  <p>Total: <b>{{ inq.total }}</b> · Open: <b>{{ inq.open_n }}</b> · Answered: <b>{{ inq.answered }}</b> · Closed: <b>{{ inq.closed }}</b>
+     · <a class="no-print" href="{{ url_for('inquiries_list') }}">Manage inquiries</a></p>
+</section>
+
+<section class="card">
+  <h2>Area-wise analysis</h2>
+  <div class="table-wrap"><table>
+    <tr><th>#</th><th>Area</th><th>Incidents</th><th>Risk score</th><th>Resolved %</th><th>Level</th></tr>
+    {% for a in s.by_area %}
+    <tr><td>{{ loop.index }}</td><td>{{ a.name }}</td><td>{{ a.incidents }}</td><td>{{ a.risk_score }}</td>
+        <td>{{ a.resolved_pct }}%</td><td><span class="badge badge-{{ a.level }}">{{ a.level }}</span></td></tr>
+    {% endfor %}
+  </table></div>
+</section>
+
+<div class="grid2">
+  <section class="card">
+    <h2>Time-slot analysis</h2>
+    <table>
+      <tr><th>Slot</th><th>Incidents</th><th>Share</th></tr>
+      {% set tot = s.by_slot|sum %}
+      {% for name in s.slots %}
+      <tr><td>{{ name }}</td><td>{{ s.by_slot[loop.index0] }}</td>
+          <td>{{ ((s.by_slot[loop.index0] / tot * 100)|round(1)) if tot else 0 }}%</td></tr>
+      {% endfor %}
+    </table>
+  </section>
+  <section class="card">
+    <h2>Day-of-week analysis</h2>
+    <table>
+      <tr><th>Day</th><th>Incidents</th></tr>
+      {% for d in days %}<tr><td>{{ d }}</td><td>{{ s.by_weekday[loop.index0] }}</td></tr>{% endfor %}
+    </table>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Incident types</h2>
+  <table>
+    <tr><th>Type</th><th>Severity</th><th>Incidents</th></tr>
+    {% for t in s.by_type %}<tr><td>{{ t.name }}</td><td>{{ t.severity }}/5</td><td>{{ t.incidents }}</td></tr>{% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h2>Recommended actions</h2>
+  <ul>
+    <li>Increase police patrolling and PCR presence in High-risk areas during the riskiest time slot.</li>
+    <li>Improve street lighting, CCTV coverage and public-transport safety near the top hotspots.</li>
+    <li>Run awareness drives and promote the 112 / 1091 helplines in affected areas.</li>
+    <li>Review open cases older than 30 days to improve the resolution rate.</li>
+  </ul>
+</section>
+{% endblock %}

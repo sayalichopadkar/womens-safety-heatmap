@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Inquiry #{{ q.id }}{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>Inquiry #{{ q.id }}: {{ q.subject }}</h1>
+  <span class="badge iq-{{ q.status }}">{{ q.status }}</span>
+</div>
+<section class="card">
+  <p class="muted">{{ q.category }} · from <b>{{ q.asker }}</b>{% if current_user.role != 'citizen' %} ({{ q.asker_email }}){% endif %}
+     · {{ q.created_at }}{% if q.incident_id %} · Related incident #{{ q.incident_id }}{% endif %}</p>
+  <p style="white-space:pre-wrap">{{ q.message }}</p>
+</section>
+
+{% if q.reply %}
+<section class="card reply">
+  <h2>Reply <small class="muted">by {{ q.responder or 'staff' }} · {{ q.replied_at }}</small></h2>
+  <p style="white-space:pre-wrap">{{ q.reply }}</p>
+</section>
+{% else %}
+<section class="card"><p class="muted">No reply yet. You will see the answer on this page.</p></section>
+{% endif %}
+
+{% if current_user.role in ('admin', 'officer') and q.status != 'Closed' %}
+<form method="post" action="{{ url_for('inquiry_reply', iid=q.id) }}" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>{{ 'Update reply' if q.reply else 'Write a reply' }}
+    <textarea name="reply" rows="5" maxlength="2000" required>{{ q.reply or '' }}</textarea></label>
+  <p><button class="btn" type="submit">Send reply</button></p>
+</form>
+{% endif %}
+
+<div>
+  {% if q.status != 'Closed' %}
+  <form method="post" action="{{ url_for('inquiry_close', iid=q.id) }}" class="inline" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btn btn-ghost" type="submit">Mark as closed</button>
+  </form>
+  {% endif %}
+  <a class="btn btn-ghost" href="{{ url_for('inquiries_list') }}">← Back</a>
+</div>
+{% endblock %}

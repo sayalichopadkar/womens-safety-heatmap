@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Inquiries{% endblock %}
+{% block content %}
+<div class="row-between">
+  <h1>{{ 'My inquiries' if current_user.role == 'citizen' else 'Inquiries' }}</h1>
+  <a class="btn" href="{{ url_for('inquiry_new') }}">+ New inquiry</a>
+</div>
+{% if counts %}
+<section class="kpis">
+  <div class="kpi"><div class="kpi-v">{{ counts.total }}</div><div class="kpi-l">Total</div></div>
+  <div class="kpi"><div class="kpi-v">{{ counts.open_n }}</div><div class="kpi-l">Open (need reply)</div></div>
+  <div class="kpi"><div class="kpi-v">{{ counts.answered }}</div><div class="kpi-l">Answered</div></div>
+  <div class="kpi"><div class="kpi-v">{{ counts.closed }}</div><div class="kpi-l">Closed</div></div>
+</section>
+{% endif %}
+<form class="filters" method="get">
+  <label>Status
+    <select name="status"><option value="">All</option>
+      {% for s in statuses %}<option {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}</select></label>
+  <button class="btn btn-small" type="submit">Apply</button>
+</form>
+<div class="card table-wrap">
+<table>
+  <tr><th>ID</th><th>Subject</th><th>Category</th>{% if current_user.role != 'citizen' %}<th>From</th>{% endif %}<th>Status</th><th>Created</th><th></th></tr>
+  {% for q in rows %}
+  <tr>
+    <td>#{{ q.id }}</td><td>{{ q.subject }}</td><td>{{ q.category }}</td>
+    {% if current_user.role != 'citizen' %}<td>{{ q.asker }}</td>{% endif %}
+    <td><span class="badge iq-{{ q.status }}">{{ q.status }}</span></td>
+    <td>{{ q.created_at }}</td>
+    <td><a class="btn btn-small btn-ghost" href="{{ url_for('inquiry_detail', iid=q.id) }}">Open</a></td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">No inquiries yet.</td></tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

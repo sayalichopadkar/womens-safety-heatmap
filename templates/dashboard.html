@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% from "_filters.html" import filter_form %}
+{% block title %}Dashboard{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+{% endblock %}
+{% block content %}
+<h1>Incident Heatmap &amp; Analysis</h1>
+{{ filter_form(url_for('dashboard'), f, areas, types, statuses, slots) }}
+
+<section class="kpis" id="kpis"></section>
+
+<section class="card">
+  <h2>Heatmap <small class="muted">— brighter = more incidents / higher severity</small></h2>
+  <div id="map"></div>
+</section>
+
+<div class="grid2">
+  <section class="card"><h2>Area-wise incidents</h2><canvas id="areaChart"></canvas></section>
+  <section class="card"><h2>Hour of day</h2><canvas id="hourChart"></canvas></section>
+  <section class="card"><h2>Time slot</h2><canvas id="slotChart"></canvas></section>
+  <section class="card"><h2>Day of week</h2><canvas id="dayChart"></canvas></section>
+  <section class="card"><h2>Incident types</h2><canvas id="typeChart"></canvas></section>
+  <section class="card"><h2>Monthly trend</h2><canvas id="trendChart"></canvas></section>
+</div>
+
+<section class="card">
+  <h2>Area × Time-slot matrix <small class="muted">— where and when incidents cluster</small></h2>
+  <div class="table-wrap"><table class="matrix" id="matrix"></table></div>
+</section>
+
+<section class="card">
+  <h2>Hotspot ranking</h2>
+  <div class="table-wrap"><table id="hotspots"></table></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const qs = window.location.search;
+const SLOT_LABELS = ["Morning", "Afternoon", "Evening", "Night"];
+const DAYS = {{ DAYS|tojson }};
+const BLUE = "#4f46e5", RED = "#dc2626";
+const charts = [];
+
+function bar(id, labels, data, opts = {}) {
+  charts.push(new Chart(document.getElementById(id), {
+    type: opts.type || "bar",
+    data: { labels, datasets: [{ data, backgroundColor: opts.color || BLUE, borderColor: opts.color || BLUE, tension: .3 }] },
+    options: { indexAxis: opts.horizontal ? "y" : "x", plugins: { legend: { display: false } },
+               scales: { y: { beginAtZero: true } } }
+  }));
+}
+
+Promise.all([
+  fetch("/api/stats" + qs).then(r => r.json()),
+  fetch("/api/heatmap" + qs).then(r => r.json())
+]).then(([s, pts]) => {
+  // KPIs
+  const k = s.kpis;
+  const kp = [["Total incidents", k.total], ["Severe (4-5)", k.severe], ["Open cases", k.open],
+              ["Resolution rate", k.resolution_rate + "%"],
+              ["Peak hour", k.peak_hour === null ? "-" : String(k.peak_hour).padStart(2, "0") + ":00"],
+              ["Top hotspot", k.top_area || "-"]];
+  document.getElementById("kpis").innerHTML = kp.map(([l, v]) =>
+    `<div class="kpi"><div class="kpi-v">${v}</div><div class="kpi-l">${l}</div></div>`).join("");
+
+  // Map
+  const map = L.map("map").setView([18.5204, 73.8567], 12);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+  if (pts.length) {
+    L.heatLayer(pts, { radius: 22, blur: 18, minOpacity: .35,
+      gradient: { 0.2: "#2563eb", 0.45: "#22c55e", 0.65: "#facc15", 0.85: "#f97316", 1: "#dc2626" } }).addTo(map);
+    map.fitBounds(pts.map(p => [p[0], p[1]]), { padding: [30, 30] });
+  }
+  const col = { High: "#dc2626", Medium: "#f59e0b", Low: "#16a34a" };
+  s.by_area.forEach(a => L.circleMarker([a.lat, a.lng], { radius: 6, color: "#111", weight: 1, fillColor: col[a.level], fillOpacity: .9 })
+    .bindPopup(`<b>${a.name}</b><br>${a.incidents} incidents<br>Risk: ${a.level}`).addTo(map));
+
+  // Charts
+  bar("areaChart", s.by_area.map(a => a.name), s.by_area.map(a => a.incidents), { horizontal: true, color: RED });
+  bar("hourChart", [...Array(24).keys()].map(h => h + ":00"), s.by_hour);
+  bar("slotChart", SLOT_LABELS, s.by_slot, { color: "#7c3aed" });
+  bar("dayChart", DAYS, s.by_weekday, { color: "#0891b2" });
+  bar("typeChart", s.by_type.map(t => t.name), s.by_type.map(t => t.incidents), { horizontal: true, color: "#d97706" });
+  bar("trendChart", s.trend.map(t => t.month), s.trend.map(t => t.incidents), { type: "line", color: "#059669" });
+
+  // Matrix
+  const max = Math.max(1, ...s.matrix.flatMap(r => r.counts));
+  document.getElementById("matrix").innerHTML =
+    "<tr><th>Area</th>" + SLOT_LABELS.map(l => `<th>${l}</th>`).join("") + "<th>Total</th></tr>" +
+    s.matrix.map(r => "<tr><td>" + r.area + "</td>" + r.counts.map(c =>
+      `<td style="background:rgba(220,38,38,${(c / max * .85).toFixed(2)});color:${c / max > .5 ? "#fff" : "inherit"}">${c}</td>`).join("") +
+      `<td><b>${r.counts.reduce((a, b) => a + b, 0)}</b></td></tr>`).join("");
+
+  // Hotspots
+  document.getElementById("hotspots").innerHTML =
+    "<tr><th>#</th><th>Area</th><th>Incidents</th><th>Risk score</th><th>Resolved</th><th>Level</th></tr>" +
+    s.by_area.map((a, i) => `<tr><td>${i + 1}</td><td>${a.name}</td><td>${a.incidents}</td><td>${a.risk_score}</td>
+      <td>${a.resolved_pct}%</td><td><span class="badge badge-${a.level}">${a.level}</span></td></tr>`).join("");
+});
+</script>
+{% endblock %}

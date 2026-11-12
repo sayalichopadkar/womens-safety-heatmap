@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}New inquiry{% endblock %}
+{% block content %}
+<h1>Submit an inquiry</h1>
+<p class="muted">Ask about the status of your report, raise a safety concern, or send a suggestion. An officer will reply here.</p>
+<form method="post" class="card form-grid">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Category
+    <select name="category" required>
+      <option value="">Select category</option>
+      {% for c in categories %}<option {{ 'selected' if f.get('category') == c }}>{{ c }}</option>{% endfor %}
+    </select></label>
+  <label>Related incident ID <small class="muted">(optional)</small>
+    <input name="incident_id" inputmode="numeric" value="{{ f.get('incident_id', '') }}" placeholder="e.g. 1201"></label>
+  <label class="full">Subject
+    <input name="subject" maxlength="120" value="{{ f.get('subject', '') }}" required></label>
+  <label class="full">Message
+    <textarea name="message" rows="6" maxlength="2000" required placeholder="Write your question or concern (10+ characters).">{{ f.get('message', '') }}</textarea></label>
+  <div class="full">
+    <button class="btn" type="submit">Submit inquiry</button>
+    <a class="btn btn-ghost" href="{{ url_for('inquiries_list') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

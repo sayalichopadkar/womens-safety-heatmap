@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Trip tracking{% endblock %}
+{% block content %}
+<section class="card" style="max-width:560px;margin:20px auto" id="box">
+  <h1 style="margin-top:0">🛡️ <span id="who">{{ t.traveller }}</span> is travelling</h1>
+  <p style="font-size:1.15rem;margin:0 0 6px"><strong>{{ t.from }}</strong> → <strong>{{ t.to }}</strong></p>
+  <p class="muted" style="margin:0">Started {{ t.started_at }} · Expected by <span id="deadline">{{ t.deadline }}</span></p>
+  {% if t.note %}<p class="muted">Note: {{ t.note }}</p>{% endif %}
+  <div style="margin:14px 0"><span class="badge gs-{{ t.status }}" id="status" style="font-size:1rem">{{ t.status }}</span></div>
+  <div class="countdown" id="countdown">--:--</div>
+  <div id="msg" class="alert alert-info"></div>
+  <p class="muted" style="font-size:.8rem;margin-bottom:0">This page refreshes by itself every 15 seconds. Emergency: <strong>112</strong> · Women helpline: <strong>1091</strong></p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+let state = {{ t|tojson }};
+const MSG = {
+  Active: "Trip in progress. You will see 'Safe' here when they arrive.",
+  Overdue: "They have NOT checked in on time. Please call them now. If you cannot reach them, call 112 and share this trip's route.",
+  SOS: "SOS raised! Call them immediately. If they do not answer, call 112 now.",
+  Safe: "✅ Reached safely. No action needed.",
+  Cancelled: "The trip was cancelled."
+};
+function paint() {
+  const el = document.getElementById("countdown");
+  document.getElementById("status").className = "badge gs-" + state.status;
+  document.getElementById("status").textContent = state.status;
+  document.getElementById("deadline").textContent = state.deadline;
+  const box = document.getElementById("msg");
+  box.textContent = MSG[state.status] || "";
+  box.className = "alert " + ({Active:"alert-info", Overdue:"alert-danger", SOS:"alert-danger", Safe:"alert-success"}[state.status] || "alert-info");
+  if (state.status === "Safe" || state.status === "Cancelled") { el.textContent = ""; return; }
+  if (state.status === "SOS") { el.textContent = "SOS ACTIVE"; el.style.color = "#dc2626"; return; }
+  const a = Math.abs(state.remaining), m = Math.floor(a / 60), s = a % 60;
+  const txt = String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  el.textContent = state.remaining >= 0 ? txt + " left" : "OVERDUE by " + txt;
+  el.style.color = state.remaining >= 0 ? "#16a34a" : "#dc2626";
+}
+paint();
+setInterval(() => { state.remaining--; if (state.status === "Active" && state.remaining < 0) state.status = "Overdue"; paint(); }, 1000);
+setInterval(() => fetch(location.pathname + "/status.json").then(r => r.json()).then(d => { state = d; paint(); }), 15000);
+</script>
+{% endblock %}

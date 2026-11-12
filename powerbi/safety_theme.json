@@ -1,0 +1,13 @@
+{
+  "name": "Safety Heatmap",
+  "dataColors": ["#4F46E5", "#DC2626", "#0891B2", "#D97706", "#7C3AED", "#059669", "#DB2777", "#64748B"],
+  "background": "#FFFFFF",
+  "foreground": "#1F2937",
+  "tableAccent": "#4F46E5",
+  "good": "#16A34A",
+  "neutral": "#F59E0B",
+  "bad": "#DC2626",
+  "maximum": "#DC2626",
+  "center": "#FACC15",
+  "minimum": "#DBEAFE"
+}

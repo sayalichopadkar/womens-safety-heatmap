@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Analysis{% endblock %}
+{% block content %}
+<div class="row-between">
+  <div>
+    <h1>Analysis dashboard</h1>
+    <p class="muted">Interactive, Power BI style. Use the slicers, or <b>click any bar / slice / cell</b> to filter everything else. Click again to remove the filter.</p>
+  </div>
+  <div class="no-print">
+    {% if can_export %}
+      <a class="btn btn-small" id="exPdf" href="{{ url_for('export_pdf') }}">⬇ PDF report</a>
+      <a class="btn btn-small" id="exXlsx" href="{{ url_for('export_xlsx') }}">⬇ Excel report</a>
+      <a class="btn btn-small btn-ghost" href="{{ url_for('powerbi') }}">Power BI data</a>
+    {% endif %}
+    <a class="btn btn-small btn-ghost" href="{{ url_for('dashboard') }}">Heatmap</a>
+  </div>
+</div>
+
+<form class="filters" onsubmit="return false">
+  <label>Area
+    <select id="f_area_id"><option value="">All</option>
+      {% for a in areas %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></label>
+  <label>Type
+    <select id="f_type_id"><option value="">All</option>
+      {% for t in types %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select></label>
+  <label>Time slot
+    <select id="f_slot"><option value="">All</option>
+      {% for s in slots %}<option>{{ s }}</option>{% endfor %}</select></label>
+  <label>Status
+    <select id="f_status"><option value="">All</option>
+      {% for s in statuses %}<option>{{ s }}</option>{% endfor %}</select></label>
+  <label>From <input type="date" id="f_date_from"></label>
+  <label>To <input type="date" id="f_date_to"></label>
+  <button class="btn btn-small btn-ghost" type="button" id="clearAll">Clear all</button>
+</form>
+<div id="chips" class="chips"></div>
+
+<section class="kpis" id="kpis"></section>
+<div id="empty" class="card" style="display:none">No incidents match the selected filters.</div>
+
+<div id="board">
+  <div class="grid3">
+    <section class="card"><h2>Incidents by area <small class="muted">click to filter</small></h2><div class="chart-box"><canvas id="areaChart"></canvas></div></section>
+    <section class="card"><h2>By hour of day <small class="muted">click to filter</small></h2><div class="chart-box"><canvas id="hourChart"></canvas></div></section>
+    <section class="card"><h2>By time slot <small class="muted">click to filter</small></h2><div class="chart-box"><canvas id="slotChart"></canvas></div></section>
+    <section class="card"><h2>By day of week <small class="muted">click to filter</small></h2><div class="chart-box"><canvas id="dayChart"></canvas></div></section>
+    <section class="card"><h2>By incident type <small class="muted">click to filter</small></h2><div class="chart-box"><canvas id="typeChart"></canvas></div></section>
+    <section class="card"><h2>Monthly trend</h2><div class="chart-box"><canvas id="trendChart"></canvas></div></section>
+  </div>
+
+  <section class="card">
+    <h2>Incident type × time slot</h2>
+    <div class="chart-box tall"><canvas id="typeSlotChart"></canvas></div>
+  </section>
+
+  <section class="card">
+    <h2>Area × hour heat grid <small class="muted">darker = more incidents · click a cell to filter by that area and hour</small></h2>
+    <div class="table-wrap"><table class="heat" id="heat"></table></div>
+  </section>
+
+  <h2>What the data says</h2>
+  <div class="grid2" id="findings"></div>
+
+  <div class="grid2" style="margin-top:16px">
+    <section class="card"><h2>Peak hour in each area</h2><div class="table-wrap"><table id="tPeak"></table></div></section>
+    <section class="card"><h2>Last 30 days vs previous 30 days</h2><div class="table-wrap"><table id="tTrend"></table></div></section>
+    <section class="card"><h2>Most common incident by time slot</h2><table id="tTypeSlot"></table></section>
+    <section class="card"><h2>Severity by time slot</h2><table id="tSev"></table></section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const DAYS = {{ DAYS|tojson }};
+const KEYS = ["area_id", "type_id", "status", "slot", "weekday", "hour", "date_from", "date_to"];
+const SLOT_COLORS = ["#0891b2", "#d97706", "#7c3aed", "#dc2626"];
+const state = {};
+let D = null;
+const charts = {};
+
+new URLSearchParams(location.search).forEach((v, k) => { if (KEYS.includes(k) && v) state[k] = v; });
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const qs = () => new URLSearchParams(state).toString();
+
+function toggle(key, val) {
+  if (state[key] === val) delete state[key]; else state[key] = val;
+  syncControls(); refresh();
+}
+
+function syncControls() {
+  ["area_id", "type_id", "slot", "status", "date_from", "date_to"].forEach(k => {
+    document.getElementById("f_" + k).value = state[k] || "";
+  });
+}
+
+function chipLabel(k, v) {
+  if (k === "area_id" || k === "type_id") {
+    const o = [...document.getElementById("f_" + k).options].find(x => x.value === v);
+    return (k === "area_id" ? "Area: " : "Type: ") + (o ? o.text : v);
+  }
+  if (k === "weekday") return "Day: " + DAYS[+v];
+  if (k === "hour") return "Hour: " + String(v).padStart(2, "0") + ":00";
+  if (k === "slot") return "Slot: " + v;
+  if (k === "status") return "Status: " + v;
+  return (k === "date_from" ? "From: " : "To: ") + v;
+}
+
+function mk(id, type, o = {}) {
+  charts[id] = new Chart(document.getElementById(id), {
+    type,
+    data: { labels: [], datasets: [] },
+    options: {
+      responsive: true, maintainAspectRatio: false, onClick: o.click, indexAxis: o.horizontal ? "y" : "x",
+      plugins: { legend: { display: !!o.legend, position: "bottom" } },
+      scales: o.noScales ? {} : {
+        x: { stacked: !!o.stacked, beginAtZero: true },
+        // long category names (e.g. "Domestic Violence (reported)") are shortened on horizontal charts
+        y: { stacked: !!o.stacked, beginAtZero: true, ticks: o.horizontal ? { callback(v) {
+          const l = String(this.getLabelForValue(v)); return l.length > 20 ? l.slice(0, 19) + "…" : l; } } : {} }
+      }
+    }
+  });
+}
+function setData(id, labels, datasets) {
+  const c = charts[id];
+  c.data.labels = labels; c.data.datasets = datasets; c.update();
+}
+const pick = (fn) => (e, els) => { if (els.length) fn(els[0].index); };
+
+function initCharts() {
+  mk("areaChart", "bar", { horizontal: true, click: pick(i => toggle("area_id", String(D.stats.by_area[i].id))) });
+  mk("hourChart", "bar", { click: pick(i => toggle("hour", String(i))) });
+  mk("slotChart", "doughnut", { noScales: true, legend: true, click: pick(i => toggle("slot", D.stats.slots[i])) });
+  mk("dayChart", "bar", { click: pick(i => toggle("weekday", String(i))) });
+  mk("typeChart", "bar", { horizontal: true, click: pick(i => toggle("type_id", String(D.stats.by_type[i].id))) });
+  mk("trendChart", "line");
+  mk("typeSlotChart", "bar", { horizontal: true, stacked: true, legend: true });
+}
+
+function render() {
+  const s = D.stats, k = s.kpis;
+  document.getElementById("empty").style.display = D.total ? "none" : "block";
+  document.getElementById("board").style.display = D.total ? "block" : "none";
+
+  const cards = [["Total incidents", k.total], ["Severe (4-5)", k.severe], ["Open cases", k.open],
+    ["Resolution rate", k.resolution_rate + "%"],
+    ["Peak hour", k.peak_hour === null ? "-" : String(k.peak_hour).padStart(2, "0") + ":00"],
+    ["Top hotspot", k.top_area || "-"]];
+  document.getElementById("kpis").innerHTML = cards.map(([l, v]) =>
+    `<div class="kpi"><div class="kpi-v">${esc(v)}</div><div class="kpi-l">${l}</div></div>`).join("");
+
+  document.getElementById("chips").innerHTML = Object.entries(state).map(([key, v]) =>
+    `<span class="chip">${esc(chipLabel(key, v))} <button type="button" data-k="${key}" aria-label="Remove filter">×</button></span>`).join("");
+
+  if (!D.total) return;
+
+  setData("areaChart", s.by_area.map(a => a.name), [{ data: s.by_area.map(a => a.incidents), backgroundColor: "#dc2626" }]);
+  setData("hourChart", [...Array(24).keys()].map(h => String(h).padStart(2, "0")), [{ data: s.by_hour, backgroundColor: "#4f46e5" }]);
+  setData("slotChart", s.slots.map(x => x.split(" ")[0]), [{ data: s.by_slot, backgroundColor: SLOT_COLORS }]);
+  setData("dayChart", DAYS, [{ data: s.by_weekday, backgroundColor: "#0891b2" }]);
+  setData("typeChart", s.by_type.map(t => t.name), [{ data: s.by_type.map(t => t.incidents), backgroundColor: "#d97706" }]);
+  setData("trendChart", s.trend.map(t => t.month), [{ data: s.trend.map(t => t.incidents), borderColor: "#059669", backgroundColor: "#059669", tension: .3 }]);
+  setData("typeSlotChart", D.type_slot.types, D.type_slot.slots.map((sl, i) => ({
+    label: sl.split(" ")[0], backgroundColor: SLOT_COLORS[i], data: D.type_slot.data.map(row => row[i]) })));
+
+  // heat grid
+  const ah = D.area_hour, max = Math.max(1, ah.max);
+  const idOf = Object.fromEntries(s.by_area.map(a => [a.name, a.id]));
+  document.getElementById("heat").innerHTML =
+    "<tr><th>Area</th>" + [...Array(24).keys()].map(h => `<th>${String(h).padStart(2, "0")}</th>`).join("") + "</tr>" +
+    ah.areas.map((name, r) => `<tr><td>${esc(name)}</td>` + ah.grid[r].map((c, h) =>
+      `<td data-a="${idOf[name]}" data-h="${h}" style="background:rgba(220,38,38,${(c / max * .9).toFixed(2)});color:${c / max > .5 ? "#fff" : "inherit"}">${c || ""}</td>`).join("") + "</tr>").join("");
+
+  // narrative findings
+  document.getElementById("findings").innerHTML = D.findings.map(f =>
+    `<section class="card finding"><h2>${f.icon} ${esc(f.heading)}</h2><ul>${f.points.map(p => `<li>${esc(p)}</li>`).join("")}</ul></section>`).join("");
+
+  // tables
+  document.getElementById("tPeak").innerHTML = "<tr><th>Area</th><th>Peak hour</th><th>Incidents</th></tr>" +
+    D.peak_by_area.map(p => `<tr><td>${esc(p.area)}</td><td>${String(p.hour).padStart(2, "0")}:00</td><td>${p.c}</td></tr>`).join("");
+  document.getElementById("tTrend").innerHTML = "<tr><th>Area</th><th>Last 30</th><th>Previous 30</th><th>Change</th></tr>" +
+    D.trend.map(t => `<tr><td>${esc(t.area)}</td><td>${t.last30}</td><td>${t.prev30}</td><td><b class="${t.change > 0 ? "sev-5" : ""}">${t.change > 0 ? "+" : ""}${t.change}</b></td></tr>`).join("");
+  document.getElementById("tTypeSlot").innerHTML = "<tr><th>Time slot</th><th>Most common type</th><th>Cases</th></tr>" +
+    D.type_by_slot.map(r => `<tr><td>${esc(r.slot)}</td><td>${esc(r.name)}</td><td>${r.c}</td></tr>`).join("");
+  document.getElementById("tSev").innerHTML = "<tr><th>Time slot</th><th>Avg severity (1-5)</th><th>Incidents</th></tr>" +
+    D.sev_by_slot.map(r => `<tr><td>${esc(r.slot)}</td><td>${r.avg_sev}</td><td>${r.c}</td></tr>`).join("");
+}
+
+function refresh() {
+  const q = qs();
+  history.replaceState(null, "", q ? "?" + q : location.pathname);
+  const pdf = document.getElementById("exPdf"), xl = document.getElementById("exXlsx");
+  if (pdf) { pdf.href = "{{ url_for('export_pdf') }}" + (q ? "?" + q : ""); xl.href = "{{ url_for('export_xlsx') }}" + (q ? "?" + q : ""); }
+  return fetch("/api/analysis" + (q ? "?" + q : "")).then(r => r.json()).then(d => { D = d; render(); });
+}
+
+// slicers
+["area_id", "type_id", "slot", "status", "date_from", "date_to"].forEach(k => {
+  document.getElementById("f_" + k).addEventListener("change", e => {
+    if (e.target.value) state[k] = e.target.value; else delete state[k];
+    refresh();
+  });
+});
+document.getElementById("clearAll").addEventListener("click", () => {
+  Object.keys(state).forEach(k => delete state[k]); syncControls(); refresh();
+});
+document.getElementById("chips").addEventListener("click", e => {
+  const b = e.target.closest("button[data-k]");
+  if (b) { delete state[b.dataset.k]; syncControls(); refresh(); }
+});
+document.getElementById("heat").addEventListener("click", e => {
+  const td = e.target.closest("td[data-a]");
+  if (!td) return;
+  state.area_id = td.dataset.a; state.hour = td.dataset.h;
+  syncControls(); refresh();
+});
+
+initCharts(); syncControls(); refresh();
+</script>
+{% endblock %}

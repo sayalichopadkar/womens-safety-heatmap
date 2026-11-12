@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Power BI data{% endblock %}
+{% block content %}
+<h1>Power BI data</h1>
+<p class="muted">Download a ready-made star-schema dataset and everything needed to build the Power BI report. Personal data (names, emails, user IDs) is never included.</p>
+
+<div class="grid2">
+  <section class="card">
+    <h2>1. Data</h2>
+    <p><a class="btn" href="{{ url_for('powerbi_zip') }}">⬇ CSV package (.zip)</a></p>
+    <p class="muted">5 CSV files + guide + DAX measures + theme. Best for Power BI Desktop (Get data &gt; Text/CSV or Folder).</p>
+    <p><a class="btn btn-ghost" href="{{ url_for('powerbi_xlsx') }}">⬇ Excel workbook (.xlsx)</a></p>
+    <p class="muted">Same 5 tables as 5 sheets.</p>
+  </section>
+  <section class="card">
+    <h2>2. Power BI kit</h2>
+    <p><a class="btn btn-ghost" href="{{ url_for('powerbi_file', name='POWERBI_GUIDE.md') }}">Step-by-step guide</a></p>
+    <p><a class="btn btn-ghost" href="{{ url_for('powerbi_file', name='measures.dax') }}">DAX measures</a></p>
+    <p><a class="btn btn-ghost" href="{{ url_for('powerbi_file', name='safety_theme.json') }}">Report theme (.json)</a></p>
+    <p><a class="btn btn-ghost" href="{{ url_for('powerbi_file', name='load_from_db.py') }}">Python loader (live from database)</a></p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Tables in the dataset</h2>
+  <table>
+    <tr><th>Table</th><th>Rows</th><th>Columns</th></tr>
+    {% for name, (cols, n) in tables.items() %}
+    <tr><td><b>{{ name }}</b></td><td>{{ n }}</td><td>{{ cols|join(', ') }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="card">
+  <h2>Quick steps</h2>
+  <ol>
+    <li>Download the CSV package and unzip it.</li>
+    <li>Power BI Desktop &rarr; Get data &rarr; Text/CSV, load the 5 CSV files.</li>
+    <li>Create relationships: <code>fact_incidents</code> to <code>dim_area</code> (area_id), <code>dim_type</code> (type_id), <code>dim_date</code> (incident_date = date) and <code>dim_hour</code> (hour).</li>
+    <li>Paste the measures from <code>measures.dax</code> and apply the theme.</li>
+    <li>Add the visuals listed in the guide (cards, slicers, bar/column/donut/line charts, map, heat-grid matrix).</li>
+  </ol>
+</section>
+{% endblock %}

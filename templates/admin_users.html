@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>User management</h1>
+<div class="card table-wrap">
+<table>
+  <tr><th>ID</th><th>Name</th><th>Email</th><th>Reports</th><th>Last login</th><th>Role</th><th>Active</th><th></th></tr>
+  {% for u in users %}
+  <tr>
+    <form method="post" action="{{ url_for('admin_update_user', user_id=u.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <td>{{ u.id }}</td><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ u.reports }}</td><td>{{ u.last_login or '-' }}</td>
+      <td><select name="role" {{ 'disabled' if u.id == current_user.id }}>
+        {% for r in ['citizen', 'officer', 'admin'] %}<option {{ 'selected' if r == u.role }}>{{ r }}</option>{% endfor %}</select></td>
+      <td><input type="checkbox" name="is_active" value="1" {{ 'checked' if u.is_active }} {{ 'disabled' if u.id == current_user.id }}></td>
+      <td>{% if u.id != current_user.id %}<button class="btn btn-small" type="submit">Save</button>{% else %}<span class="muted">you</span>{% endif %}</td>
+    </form>
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endblock %}

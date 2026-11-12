@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Report Incident{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block content %}
+<h1>Report an incident</h1>
+<p class="muted">Your report helps identify unsafe areas and times. Tick "anonymous" to hide your name from officers.</p>
+<form method="post" class="card form-grid">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Area
+    <select name="area_id" id="area" required>
+      <option value="">Select area</option>
+      {% for a in areas %}<option value="{{ a.id }}" data-lat="{{ a.lat }}" data-lng="{{ a.lng }}" {{ 'selected' if f.get('area_id') == a.id|string }}>{{ a.name }}, {{ a.city }}</option>{% endfor %}
+    </select></label>
+  <label>Incident type
+    <select name="type_id" required>
+      <option value="">Select type</option>
+      {% for t in types %}<option value="{{ t.id }}" {{ 'selected' if f.get('type_id') == t.id|string }}>{{ t.name }}</option>{% endfor %}
+    </select></label>
+  <label>Date &amp; time of incident
+    <input type="datetime-local" name="incident_time" value="{{ f.get('incident_time') or now }}" max="{{ now }}" required></label>
+  <label class="full">Description (optional)
+    <textarea name="description" rows="4" maxlength="1000" placeholder="What happened? Avoid sharing names or personal details.">{{ f.get('description', '') }}</textarea></label>
+  <div class="full">
+    <label>Exact location <small class="muted">(click the map to pin; otherwise the area centre is used)</small></label>
+    <div id="map" class="map-small"></div>
+    <input type="hidden" name="latitude" id="lat" value="{{ f.get('latitude', '') }}">
+    <input type="hidden" name="longitude" id="lng" value="{{ f.get('longitude', '') }}">
+  </div>
+  <label class="check full"><input type="checkbox" name="is_anonymous" value="1" {{ 'checked' if f.get('is_anonymous') }}> Report anonymously</label>
+  <div class="full"><button class="btn" type="submit">Submit report</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map("map").setView([18.5204, 73.8567], 12);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
+let marker = null;
+function pin(lat, lng) {
+  if (marker) marker.setLatLng([lat, lng]); else marker = L.marker([lat, lng]).addTo(map);
+  document.getElementById("lat").value = lat.toFixed(6);
+  document.getElementById("lng").value = lng.toFixed(6);
+}
+map.on("click", e => pin(e.latlng.lat, e.latlng.lng));
+document.getElementById("area").addEventListener("change", e => {
+  const o = e.target.selectedOptions[0];
+  if (o && o.dataset.lat) {
+    map.setView([+o.dataset.lat, +o.dataset.lng], 14);
+    document.getElementById("lat").value = ""; document.getElementById("lng").value = "";
+    if (marker) { map.removeLayer(marker); marker = null; }
+  }
+});
+</script>
+{% endblock %}

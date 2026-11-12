@@ -1,0 +1,8 @@
+{% macro findings(an) %}
+{% for fnd in an.findings %}
+<section class="card finding">
+  <h2>{{ fnd.icon }} {{ fnd.heading }}</h2>
+  <ul>{% for p in fnd.points %}<li>{{ p }}</li>{% endfor %}</ul>
+</section>
+{% endfor %}
+{% endmacro %}

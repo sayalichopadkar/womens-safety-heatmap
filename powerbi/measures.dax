@@ -1,0 +1,71 @@
+-- Women's Safety Incident Heatmap: DAX measures for Power BI
+-- How to use: in Power BI Desktop go to Home > Enter data, create an empty table named _Measures,
+-- then for each measure below use Modeling > New measure and paste ONE block (name = formula).
+-- Table names expected: fact_incidents, dim_area, dim_type, dim_date, dim_hour
+
+-- ===== Core counts =====
+Total Incidents = COUNTROWS(fact_incidents)
+
+Severe Incidents = CALCULATE([Total Incidents], fact_incidents[is_severe] = 1)
+
+Open Cases = CALCULATE([Total Incidents], fact_incidents[is_open] = 1)
+
+Resolved Cases = CALCULATE([Total Incidents], fact_incidents[status] = "Resolved")
+
+Resolution Rate % = DIVIDE([Resolved Cases], [Total Incidents])
+
+Severe Share % = DIVIDE([Severe Incidents], [Total Incidents])
+
+-- ===== Risk =====
+Risk Score = SUM(fact_incidents[severity])
+
+Avg Severity = AVERAGE(fact_incidents[severity])
+
+Risk Level =
+VAR MaxScore = MAXX(ALL(dim_area[area_name]), [Risk Score])
+VAR Ratio = DIVIDE([Risk Score], MaxScore)
+RETURN SWITCH(TRUE(), Ratio >= 0.66, "High", Ratio >= 0.33, "Medium", "Low")
+
+Risk Color =
+SWITCH([Risk Level], "High", "#DC2626", "Medium", "#F59E0B", "#16A34A")
+
+-- ===== Time analysis =====
+Night Incidents = CALCULATE([Total Incidents], fact_incidents[time_slot] = "Night (10PM-5AM)")
+
+Night Share % = DIVIDE([Night Incidents], [Total Incidents])
+
+Evening Incidents = CALCULATE([Total Incidents], fact_incidents[time_slot] = "Evening (5PM-10PM)")
+
+Weekend Incidents = CALCULATE([Total Incidents], dim_date[is_weekend] = 1)
+
+Weekend Share % = DIVIDE([Weekend Incidents], [Total Incidents])
+
+Peak Hour =
+VAR T = TOPN(1, VALUES(dim_hour[hour]), [Total Incidents], DESC, dim_hour[hour], ASC)
+RETURN MAXX(T, dim_hour[hour])
+
+Peak Hour Label = IF(ISBLANK([Peak Hour]), "-", FORMAT([Peak Hour], "00") & ":00")
+
+Top Area =
+VAR T = TOPN(1, VALUES(dim_area[area_name]), [Total Incidents], DESC)
+RETURN CONCATENATEX(T, dim_area[area_name], ", ")
+
+Share of All Incidents % = DIVIDE([Total Incidents], CALCULATE([Total Incidents], ALLSELECTED()))
+
+-- ===== Trend (last 30 days vs previous 30 days, relative to the latest incident in the data) =====
+Last Data Date = CALCULATE(MAX(fact_incidents[incident_date]), ALL(fact_incidents))
+
+Incidents Last 30 Days =
+CALCULATE([Total Incidents], DATESINPERIOD(dim_date[date], [Last Data Date], -30, DAY))
+
+Incidents Previous 30 Days =
+CALCULATE([Total Incidents], DATESINPERIOD(dim_date[date], [Last Data Date] - 30, -30, DAY))
+
+Change in Last 30 Days = [Incidents Last 30 Days] - [Incidents Previous 30 Days]
+
+Change % = DIVIDE([Change in Last 30 Days], [Incidents Previous 30 Days])
+
+-- ===== Month-over-month (use with dim_date[year_month] on an axis) =====
+Incidents Previous Month = CALCULATE([Total Incidents], DATEADD(dim_date[date], -1, MONTH))
+
+MoM Change % = DIVIDE([Total Incidents] - [Incidents Previous Month], [Incidents Previous Month])

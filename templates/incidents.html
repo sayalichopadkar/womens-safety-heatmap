@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_filters.html" import filter_form %}
+{% block title %}Incidents{% endblock %}
+{% block content %}
+<h1>{{ 'My reports' if current_user.role == 'citizen' else 'All incidents' }} <small class="muted">({{ total }})</small></h1>
+{{ filter_form(url_for('incidents'), f, areas, types, statuses, slots) }}
+<div class="card table-wrap">
+<table>
+  <tr><th>ID</th><th>When</th><th>Area</th><th>Type</th><th>Severity</th><th>Status</th>
+      {% if current_user.role != 'citizen' %}<th>Reporter</th><th>Update</th>{% endif %}</tr>
+  {% for r in rows %}
+  <tr>
+    <td>#{{ r.id }}</td><td>{{ r.incident_time }}</td><td>{{ r.area }}</td>
+    <td title="{{ r.description or '' }}">{{ r.type }}</td>
+    <td><span class="sev sev-{{ r.severity }}">{{ r.severity }}/5</span></td>
+    <td><span class="badge st-{{ r.status|replace(' ', '') }}">{{ r.status }}</span></td>
+    {% if current_user.role != 'citizen' %}
+      <td>{{ 'Anonymous' if r.is_anonymous or not r.reporter else r.reporter }}</td>
+      <td>
+        <form method="post" action="{{ url_for('update_status', incident_id=r.id) }}" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <select name="status">{% for s in statuses %}<option {{ 'selected' if s == r.status }}>{{ s }}</option>{% endfor %}</select>
+          <button class="btn btn-small" type="submit">Save</button>
+        </form>
+      </td>
+    {% endif %}
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="muted">No incidents found.</td></tr>
+  {% endfor %}
+</table>
+</div>
+<div class="pager">
+  {% if page > 1 %}<a class="btn btn-small btn-ghost" href="{{ url_for('incidents', page=page-1, **args) }}">← Prev</a>{% endif %}
+  <span>Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn btn-small btn-ghost" href="{{ url_for('incidents', page=page+1, **args) }}">Next →</a>{% endif %}
+</div>
+{% endblock %}

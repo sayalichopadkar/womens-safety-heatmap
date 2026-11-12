@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Safe Journey Planner{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+{% endblock %}
+{% block content %}
+<h1>🧭 Safe Journey Planner</h1>
+<p class="muted">Choose where you are going and when. The planner checks how risky each area on the way is <em>at the hour you will be there</em>,
+suggests a safer route and the safest time to leave, and gives tips based on what is reported along the route.</p>
+
+<form class="filters" id="jform">
+  <label>From
+    <select name="from" required><option value="">Select area</option>
+      {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if f.get('from') == a.id|string }}>{{ a.name }}</option>{% endfor %}
+    </select></label>
+  <label>To
+    <select name="to" required><option value="">Select area</option>
+      {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if f.get('to') == a.id|string }}>{{ a.name }}</option>{% endfor %}
+    </select></label>
+  <label>Leaving at
+    <input type="datetime-local" name="when" value="{{ f.get('when') or now }}" required></label>
+  <button class="btn" type="submit">Check my journey</button>
+  <button class="btn btn-ghost" type="button" id="swap" title="Swap start and destination">⇄ Swap</button>
+</form>
+<div id="jerr" class="alert alert-danger" style="display:none"></div>
+
+<div id="result" style="display:none">
+  <section class="kpis">
+    <div class="kpi"><div class="kpi-v" id="kRisk">–</div><div class="kpi-l">Journey risk (0–100)</div></div>
+    <div class="kpi"><div class="kpi-v" id="kLevel">–</div><div class="kpi-l">Risk level</div></div>
+    <div class="kpi"><div class="kpi-v" id="kDist">–</div><div class="kpi-l">Approx. distance</div></div>
+    <div class="kpi"><div class="kpi-v" id="kTime">–</div><div class="kpi-l">Approx. travel time</div></div>
+    <div class="kpi"><div class="kpi-v" id="kHot">–</div><div class="kpi-l">Area to be most careful in</div></div>
+  </section>
+
+  <div id="verdict" class="alert alert-info"></div>
+
+  <div class="grid2">
+    <section class="card"><h2>Route map</h2><div id="map" class="map-small" style="height:380px"></div>
+      <p class="muted" style="margin:8px 0 0;font-size:.8rem">Solid line = recommended · dashed = direct (if different) · circles coloured by risk at your arrival hour.</p></section>
+    <section class="card"><h2>Stops on the way</h2>
+      <div class="table-wrap"><table id="stops"></table></div></section>
+  </div>
+
+  <div class="grid2" style="margin-top:16px">
+    <section class="card"><h2>Risk if you leave at a different hour</h2>
+      <div class="chart-box"><canvas id="hourChart"></canvas></div>
+      <p id="leaveMsg" style="margin:8px 0 0"></p></section>
+    <section class="card"><h2>Route options</h2>
+      <div class="table-wrap"><table id="options"></table></div>
+      <h2 style="margin-top:16px">Safety tips for this trip</h2>
+      <ul id="tips"></ul></section>
+  </div>
+
+  <section class="card no-print">
+    <div class="row-between">
+      <span class="muted" id="note"></span>
+      <span><button class="btn btn-small" id="copy" type="button">📋 Copy trip summary</button>
+            <a class="btn btn-small" id="guard" href="#">🛡️ Start Trip Guardian</a>
+            <button class="btn btn-small btn-ghost" onclick="window.print()" type="button">Print</button></span>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const COLORS = { Low: "#16a34a", Medium: "#d97706", High: "#dc2626" };
+const form = document.getElementById("jform");
+let map, layer, chart, lastPlan;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const hh = h => String(h).padStart(2, "0") + ":00";
+const level = r => r >= 66 ? "High" : r >= 33 ? "Medium" : "Low";
+const badge = l => `<span class="badge badge-${l}">${l}</span>`;
+
+function showError(msg) { const e = $("jerr"); e.textContent = msg; e.style.display = msg ? "block" : "none"; }
+
+function render(p) {
+  lastPlan = p;
+  const r = p.recommended;
+  $("result").style.display = "block";
+  $("kRisk").textContent = r.risk;
+  $("kLevel").innerHTML = badge(r.level);
+  $("kDist").textContent = r.distance_km + " km";
+  $("kTime").textContent = r.minutes + " min";
+  $("kHot").textContent = p.hotspot.name;
+  $("kHot").style.fontSize = "1.1rem";
+
+  let verdict = p.is_direct
+    ? `The direct route is already the safest option I found (risk ${r.risk}/100).`
+    : `<strong>${esc(r.label)}</strong> is safer than the direct route: risk ${r.risk} instead of ${p.direct.risk}` +
+      ` (${r.distance_km} km vs ${p.direct.distance_km} km).`;
+  $("verdict").className = "alert " + (r.level === "High" ? "alert-danger" : r.level === "Medium" ? "alert-warning" : "alert-success");
+  $("verdict").innerHTML = verdict;
+
+  // stops table
+  $("stops").innerHTML = "<tr><th>#</th><th>Area</th><th>Arrive ≈</th><th>Risk</th></tr>" +
+    r.stops.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.name)}</td><td>${hh(s.hour)}</td><td>${s.risk} ${badge(s.level)}</td></tr>`).join("");
+
+  // options table
+  const all = [p.recommended, ...(p.is_direct ? [] : [p.direct]), ...p.alternatives.filter(o => o.label !== p.direct.label)];
+  $("options").innerHTML = "<tr><th>Route</th><th>Risk</th><th>km</th><th>min</th></tr>" +
+    all.map((o, i) => `<tr><td>${esc(o.label)}${i === 0 ? " ✅" : ""}</td><td>${o.risk} ${badge(o.level)}</td><td>${o.distance_km}</td><td>${o.minutes}</td></tr>`).join("");
+
+  // tips
+  $("tips").innerHTML = p.tips.map(t => `<li>${esc(t)}</li>`).join("");
+  $("note").textContent = p.note;
+
+  // map
+  if (!map) {
+    map = L.map("map");
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(map);
+  }
+  if (layer) layer.remove();
+  layer = L.layerGroup().addTo(map);
+  const pts = x => x.stops.map(s => [s.lat, s.lng]);
+  if (!p.is_direct) L.polyline(pts(p.direct), { color: "#6b7280", weight: 3, dashArray: "6 8" }).addTo(layer);
+  L.polyline(pts(r), { color: COLORS[r.level], weight: 5 }).addTo(layer);
+  r.stops.forEach((s, i) => {
+    const end = i === 0 || i === r.stops.length - 1;
+    L.circleMarker([s.lat, s.lng], { radius: end ? 11 : 8, color: "#1f2937", weight: end ? 3 : 1,
+      fillColor: COLORS[s.level], fillOpacity: .9 })
+      .bindPopup(`<b>${esc(s.name)}</b><br>Risk ${s.risk} (${s.level})<br>Arrive ≈ ${hh(s.hour)}`).addTo(layer);
+  });
+  map.fitBounds(L.latLngBounds(pts(r).concat(pts(p.direct))).pad(.25));
+  setTimeout(() => map.invalidateSize(), 50);
+
+  // hourly chart
+  const hours = p.leave.hourly, now = parseInt(p.departure.slice(11, 13), 10);
+  if (chart) chart.destroy();
+  chart = new Chart($("hourChart"), {
+    type: "bar",
+    data: { labels: hours.map((_, h) => hh(h)),
+            datasets: [{ data: hours, backgroundColor: hours.map((v, h) => h === now ? "#1e1b4b" : COLORS[level(v)]) }] },
+    options: { plugins: { legend: { display: false },
+                 tooltip: { callbacks: { label: c => `Risk ${c.parsed.y}` } } },
+               scales: { y: { beginAtZero: true, max: 100, title: { display: true, text: "Risk index" } } } }
+  });
+  $("leaveMsg").innerHTML = p.leave.better
+    ? `⏰ Leaving around <strong>${hh(p.leave.best_hour)}</strong> (within the next 12 hours) lowers your risk from ${hours[now]} to <strong>${p.leave.best_risk}</strong>.`
+    : `✅ Your chosen time is already among the safer options in the next 12 hours. <span class="muted">(Dark bar = your departure.)</span>`;
+  const st = r.stops;
+  $("guard").href = "/guardian?" + new URLSearchParams({ from: st[0].id, to: st[st.length - 1].id, minutes: r.minutes + 10 });
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function run(push) {
+  showError("");
+  const q = new URLSearchParams(new FormData(form));
+  if (push) history.replaceState(null, "", "?" + q);
+  fetch("/api/journey?" + q).then(async res => {
+    const data = await res.json();
+    if (!res.ok) { $("result").style.display = "none"; return showError(data.error || "Something went wrong."); }
+    render(data);
+  }).catch(() => showError("Could not reach the server."));
+}
+
+form.addEventListener("submit", e => { e.preventDefault(); run(true); });
+$("swap").addEventListener("click", () => {
+  const a = form.from.value; form.from.value = form.to.value; form.to.value = a;
+});
+$("copy").addEventListener("click", () => {
+  const p = lastPlan, r = p.recommended;
+  const text = `Safe journey: ${p.from} → ${p.to}, leaving ${p.departure.replace("T", " ")}\n` +
+    `Route: ${r.stops.map(s => s.name).join(" → ")}\n` +
+    `Risk: ${r.risk}/100 (${r.level}) · ${r.distance_km} km · ~${r.minutes} min\n` +
+    `Be careful in: ${p.hotspot.name}\nEmergency: 112 · Women helpline: 1091`;
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    .then(() => { $("copy").textContent = "✅ Copied"; setTimeout(() => $("copy").textContent = "📋 Copy trip summary", 1800); })
+    .catch(() => prompt("Copy this summary:", text));
+});
+if (form.from.value && form.to.value) run(false);
+</script>
+{% endblock %}

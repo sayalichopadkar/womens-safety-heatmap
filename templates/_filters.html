@@ -1,0 +1,24 @@
+{% macro filter_form(action, f, areas, types, statuses, slots) %}
+<form class="filters" method="get" action="{{ action }}">
+  <label>Area
+    <select name="area_id"><option value="">All</option>
+      {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if f.get('area_id') == a.id|string }}>{{ a.name }}</option>{% endfor %}
+    </select></label>
+  <label>Type
+    <select name="type_id"><option value="">All</option>
+      {% for t in types %}<option value="{{ t.id }}" {{ 'selected' if f.get('type_id') == t.id|string }}>{{ t.name }}</option>{% endfor %}
+    </select></label>
+  <label>Time slot
+    <select name="slot"><option value="">All</option>
+      {% for s in slots %}<option {{ 'selected' if f.get('slot') == s }}>{{ s }}</option>{% endfor %}
+    </select></label>
+  <label>Status
+    <select name="status"><option value="">All</option>
+      {% for s in statuses %}<option {{ 'selected' if f.get('status') == s }}>{{ s }}</option>{% endfor %}
+    </select></label>
+  <label>From <input type="date" name="date_from" value="{{ f.get('date_from', '') }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ f.get('date_to', '') }}"></label>
+  <button class="btn btn-small" type="submit">Apply</button>
+  <a class="btn btn-small btn-ghost" href="{{ action }}">Reset</a>
+</form>
+{% endmacro %}

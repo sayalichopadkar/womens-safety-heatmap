@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Trip alerts{% endblock %}
+{% block head %}<meta http-equiv="refresh" content="30">{% endblock %}
+{% block content %}
+<h1>🚨 Trip Guardian Alerts</h1>
+<p class="muted">Trips with an SOS or a missed check-in. This page refreshes every 30 seconds.</p>
+<section class="card">
+  <h2>Needs attention ({{ alerts|length }})</h2>
+  {% if alerts %}
+  <div class="table-wrap"><table>
+    <tr><th>Status</th><th>Traveller</th><th>Route</th><th>Overdue</th><th>Trusted contact</th><th>Note</th></tr>
+    {% for a in alerts %}
+    <tr><td><span class="badge gs-{{ a.label }}">{{ a.label }}</span></td><td>{{ a.user_name }}</td>
+        <td>{{ a.from_name }} → {{ a.to_name }}</td>
+        <td>{% if a.label == 'Overdue' %}{{ a.overdue_min }} min{% else %}–{% endif %}</td>
+        <td>{{ a.contact_name }} · {{ a.contact_phone }}</td><td>{{ a.note or '' }}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted">No SOS or overdue trips right now. ✅</p>{% endif %}
+</section>
+<section class="card">
+  <h2>Trips in progress ({{ active|length }})</h2>
+  {% if active %}
+  <div class="table-wrap"><table>
+    <tr><th>Traveller</th><th>Route</th><th>Started</th><th>Deadline</th><th>Time left</th></tr>
+    {% for a in active %}
+    <tr><td>{{ a.user_name }}</td><td>{{ a.from_name }} → {{ a.to_name }}</td><td>{{ a.started_at[11:16] }}</td>
+        <td>{{ a.deadline[11:16] }}</td><td>{{ a.remaining // 60 }} min</td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted">No trips in progress.</p>{% endif %}
+</section>
+<p class="muted">Contact details are sensitive. Use them only to check on the traveller's safety.</p>
+{% endblock %}

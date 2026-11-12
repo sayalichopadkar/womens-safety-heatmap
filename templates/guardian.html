@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Trip Guardian{% endblock %}
+{% block content %}
+<h1>🛡️ Trip Guardian</h1>
+<p class="muted">Your safety buddy for a journey. Start a timer, share the private link with someone you trust, and tap <strong>I'm safe</strong> when you arrive.
+If you do not check in on time, the trip turns <strong>OVERDUE</strong> and shows on the officers' alert board.</p>
+
+{% if current %}
+<section class="card guard-{{ current.label }}">
+  <div class="row-between">
+    <h2 style="margin:0">{{ current.from_name }} → {{ current.to_name }}</h2>
+    <span class="badge gs-{{ current.label }}" id="gStatus">{{ current.label }}</span>
+  </div>
+  <div class="countdown" id="countdown" data-remaining="{{ current.remaining }}" data-state="{{ current.label }}">--:--</div>
+  <p class="muted" style="margin:0 0 12px">Deadline {{ current.deadline[11:16] }} · Trusted contact: <strong>{{ current.contact_name }}</strong> ({{ current.contact_phone }})
+    {% if current.note %}· Note: {{ current.note }}{% endif %}</p>
+
+  <div class="row-between no-print" style="gap:8px;justify-content:flex-start">
+    <form method="post" action="{{ url_for('guardian_action', tid=current.id, action='safe') }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn" style="background:#16a34a">✅ I'm safe</button></form>
+    {% if current.status == 'Active' %}
+    <form method="post" action="{{ url_for('guardian_action', tid=current.id, action='extend') }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-ghost">⏱ +{{ ext_min }} min ({{ max_ext - current.extended_count }} left)</button></form>
+    <form method="post" action="{{ url_for('guardian_action', tid=current.id, action='sos') }}" class="inline"
+          onsubmit="return confirm('Raise an SOS alert? Officers and your contact will see it.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn" style="background:#dc2626">🚨 SOS</button></form>
+    {% endif %}
+    <form method="post" action="{{ url_for('guardian_action', tid=current.id, action='cancel') }}" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-ghost">Cancel trip</button></form>
+  </div>
+  {% if current.label in ('SOS', 'Overdue') %}
+  <div class="alert alert-danger" style="margin-top:12px">If you are in danger, call <strong>112</strong> right now. Women helpline: <strong>1091</strong>.</div>
+  {% endif %}
+</section>
+
+<section class="card">
+  <h2>Share with your trusted contact</h2>
+  <p class="muted" style="margin-top:0">Anyone with this private link can see your first name, route, deadline and status (not your phone number or email). The link stops being useful once the trip ends.</p>
+  <div class="row-between" style="gap:8px;justify-content:flex-start">
+    <input id="shareLink" value="{{ link }}" readonly style="flex:1;min-width:260px">
+    <button class="btn btn-small" id="copyLink" type="button">📋 Copy link</button>
+    <a class="btn btn-small btn-ghost" id="waLink" target="_blank" rel="noopener" href="#">WhatsApp</a>
+  </div>
+  <p class="muted" style="font-size:.8rem;margin-bottom:0">Note: the link works for others only when this app is hosted on the internet or on the same Wi-Fi network.</p>
+</section>
+{% else %}
+<section class="card">
+  <h2>Start a guarded trip</h2>
+  <form method="post" action="{{ url_for('guardian_start') }}" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>From
+      <select name="from_area_id" required><option value="">Select area</option>
+        {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if f.get('from') == a.id|string }}>{{ a.name }}</option>{% endfor %}
+      </select></label>
+    <label>To
+      <select name="to_area_id" required><option value="">Select area</option>
+        {% for a in areas %}<option value="{{ a.id }}" {{ 'selected' if f.get('to') == a.id|string }}>{{ a.name }}</option>{% endfor %}
+      </select></label>
+    <label>Expected travel time (minutes)
+      <input type="number" name="minutes" min="5" max="720" value="{{ f.get('minutes') or 30 }}" required></label>
+    <label>Trusted contact name
+      <input name="contact_name" maxlength="60" required placeholder="e.g. Mother, friend"></label>
+    <label>Trusted contact phone
+      <input name="contact_phone" inputmode="tel" required placeholder="10-digit mobile number"></label>
+    <label>Note (optional)
+      <input name="note" maxlength="200" placeholder="e.g. Taking auto MH12 AB 1234"></label>
+    <div class="full"><button class="btn" type="submit">Start Trip Guardian</button>
+      <a class="btn btn-ghost" href="{{ url_for('journey') }}">Plan a safe route first</a></div>
+  </form>
+</section>
+{% endif %}
+
+{% if history %}
+<section class="card">
+  <h2>Recent trips</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Started</th><th>Route</th><th>Contact</th><th>Status</th></tr>
+    {% for h in history %}
+    <tr><td>{{ h.started_at[:16] }}</td><td>{{ h.from_name }} → {{ h.to_name }}</td><td>{{ h.contact_name }}</td>
+        <td><span class="badge gs-{{ h.label }}">{{ h.label }}</span></td></tr>
+    {% endfor %}
+  </table></div>
+</section>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if current %}
+<script>
+const cd = document.getElementById("countdown");
+let left = parseInt(cd.dataset.remaining, 10);
+function paint() {
+  const a = Math.abs(left), m = Math.floor(a / 60), s = a % 60;
+  const txt = String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  if (cd.dataset.state === "SOS") { cd.textContent = "SOS ACTIVE"; cd.style.color = "#dc2626"; return; }
+  cd.textContent = left >= 0 ? txt + " left" : "OVERDUE by " + txt;
+  cd.style.color = left >= 0 ? (left < 300 ? "#d97706" : "#16a34a") : "#dc2626";
+}
+paint();
+setInterval(() => { left--; paint(); if (left === -1 && cd.dataset.state === "Active") location.reload(); }, 1000);
+const link = document.getElementById("shareLink").value;
+document.getElementById("copyLink").onclick = () => {
+  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+    .then(() => { document.getElementById("copyLink").textContent = "✅ Copied"; })
+    .catch(() => prompt("Copy this link:", link));
+};
+document.getElementById("waLink").href = "https://wa.me/?text=" +
+  encodeURIComponent("I'm travelling. Track my trip here: " + link);
+</script>
+{% endif %}
+{% endblock %}
